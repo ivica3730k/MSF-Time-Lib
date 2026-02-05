@@ -35,7 +35,7 @@ private:
   // if you look at MSF spec document at: https://www.pvelectronics.co.uk/rftime/msf/MSF_Time_Date_Code.pdf
   // you can see that the minute is clearly identifiable by last 59th second having 700ms of carrier
   // followed by 500ms of silence in 0th second of the next minute.
-  // We are going to look for this tranistion, keep its timestamp and then wait for the next minute boundary to start reading the bits.
+  // We are going to look for this transition, keep its timestamp and then wait for the next minute boundary to start reading the bits.
   static const int MINUTE_MARKER_NUM_SAMPLES_CARRIER = 700 / SAMPLE_RATE_MS;
   static const int MINUTE_MARKER_NUM_SAMPLES_SILENCE = 500 / SAMPLE_RATE_MS;
   static const int LOOKBACK_TOTAL = MINUTE_MARKER_NUM_SAMPLES_CARRIER + MINUTE_MARKER_NUM_SAMPLES_SILENCE;
@@ -88,13 +88,13 @@ private:
   {
     // this is how the perfect minute marker looks like
     // |<- 700ms carrier      ->|<- 500ms silence ->|
-    // our roling data structure is 1500ms long and we are pushing in the data from the left to right
+    // our rolling data structure is 1500ms long and we are pushing in the data from the left to right
     // |<- our carrier region ->|<- our silence region ->|<- unmonitored zone ->|
-    // we track how many samples in our carrier region are actually carrier and how many samples in our silence region are actually silencee
+    // we track how many samples in our carrier region are actually carrier and how many samples in our silence region are actually silence
     // and we report that score on the return, where higher score means more confidence that we are currently looking at the minute marker transition right now.
     // NOTE: unmonitored zone is just for binary safety, will be removed later
 
-    // identify the two samples that are about to leave their windoes (silence, carrier)
+    // identify the two samples that are about to leave their windows (silence, carrier)
 
     // find the index of the sample thats about to go from silence window to carrier window
     int indexAtSilenceEdge = this->rollingBufferHead - MINUTE_MARKER_NUM_SAMPLES_SILENCE;
@@ -142,7 +142,7 @@ private:
     return this->rollingBufferCarrierWindowScore + this->rollingBufferSilenceWindowScore;
   }
 
-  /// @brief Helper function that cleans up our rolling buffer global variabes and initializes them to be ready for next syn attempt
+  /// @brief Helper function that cleans up our rolling buffer global variables and initializes them to be ready for next syn attempt
   void rollingBufferSetupAndCleanup()
   {
     this->rollingBufferHead = 0;
@@ -208,7 +208,7 @@ private:
   /// @return Timestamp in milliseconds of the detected minute marker transition
   uint32_t syncToMinuteMarker()
   {
-    // This function continously reads the input via _reader function, passes the output to the updateRollingBuffer function, gets the score from its output
+    // This function continuously reads the input via _reader function, passes the output to the updateRollingBuffer function, gets the score from its output
     // and keeps timestamp of when we see the best score. After this function we can setup our listening windows for reading A and B bits of MFS signal.
 
     // to avoid always syncing on the same spot if we are very close to the minute marker,
@@ -234,7 +234,7 @@ private:
       {
         lastSample = now;
         // MSF spec defines presence of carrier as binary 0 and absence of carrier (silence) as binary 1
-        // but we dont invert here because we are only intersted in carrier presence or absence
+        // but we dont invert here because we are only interested in carrier presence or absence
         int currentScore = this->updateRollingBuffer(this->_reader());
         lastCalculatedScore = currentScore;
 
@@ -270,7 +270,7 @@ private:
   }
   /// @brief Helper function that waits until the next minute boundary after syncing to the minute marker transition
   /// @return Timestamp in milliseconds of when we think the next minute starts, which is when we should start reading the bits of MSF signal
-  uint32_t calculate_next_bit_retreival_window_start_timestamp()
+  uint32_t get_next_bit_retrieval_timestamp()
   {
     uint32_t prevMinuteMillis = this->syncToMinuteMarker();
 
@@ -296,7 +296,7 @@ public:
   MSFData get_time()
   {
 
-    uint32_t minuteStart = this->calculate_next_bit_retreival_window_start_timestamp();
+    uint32_t minuteStart = this->get_next_bit_retrieval_timestamp();
     uint32_t nextSecondBoundary = 1000;
     uint32_t lastSample = 0;
 
@@ -319,8 +319,8 @@ public:
     MSF_LOGLN(F("[MSF] SEC |   BIT A (135-165ms)   |   BIT B (235-265ms)"));
     MSF_LOGLN(F("[MSF] ------------------------------------------------"));
 
-    int countOfHighBitAsamples = 0, totalCountOfBitAsamples = 0;
-    int countOfHighBitBsamples = 0, totalCountOfBitBSamples = 0;
+    int countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
+    int countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
     int currentSecond = 0;
 
     while (currentSecond < 60)
@@ -342,15 +342,15 @@ public:
         // vote based on percentage of samples
         if (ms >= 135 && ms <= 165)
         {
-          totalCountOfBitAsamples++;
+          totalCountOfBitASamples++;
           if (binaryState)
-            countOfHighBitAsamples++;
+            countOfHighBitASamples++;
         }
         else if (ms >= 235 && ms <= 265)
         {
           totalCountOfBitBSamples++;
           if (binaryState)
-            countOfHighBitBsamples++;
+            countOfHighBitBSamples++;
         }
       }
 
@@ -358,11 +358,11 @@ public:
       // Check if we crossed the 1000ms boundary. If so, calculate the final bit for the second.
       if (elapsed >= nextSecondBoundary)
       {
-        int percentageOfHighAsamples = (totalCountOfBitAsamples > 0) ? (countOfHighBitAsamples * 100) / totalCountOfBitAsamples : 0;
-        int percentageOfHighBitBsamples = (totalCountOfBitBSamples > 0) ? (countOfHighBitBsamples * 100) / totalCountOfBitBSamples : 0;
+        int percentageOfHighASamples = (totalCountOfBitASamples > 0) ? (countOfHighBitASamples * 100) / totalCountOfBitASamples : 0;
+        int percentageOfHighBitBSamples = (totalCountOfBitBSamples > 0) ? (countOfHighBitBSamples * 100) / totalCountOfBitBSamples : 0;
 
-        bool valA = (percentageOfHighAsamples > 60);        // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
-        bool valB = (percentageOfHighBitBsamples > 60);     // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
+        bool valA = (percentageOfHighASamples > 60);        // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
+        bool valB = (percentageOfHighBitBSamples > 60);     // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
         this->writeBit(this->packedA, currentSecond, valA); // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
         this->writeBit(this->packedB, currentSecond, valB); // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
 
@@ -373,24 +373,24 @@ public:
         MSF_LOG(F(" | A:"));
         MSF_LOG((valA) ? F("1") : F("0"));
         MSF_LOG(F(" ["));
-        MSF_LOG(percentageOfHighAsamples);
+        MSF_LOG(percentageOfHighASamples);
         MSF_LOG(F("%]"));
         MSF_LOG(F(" | B:"));
         MSF_LOG((valB) ? F("1") : F("0"));
         MSF_LOG(F(" ["));
-        MSF_LOG(percentageOfHighBitBsamples);
+        MSF_LOG(percentageOfHighBitBSamples);
         MSF_LOG(F("%]"));
 
-        if (percentageOfHighAsamples < 90 && percentageOfHighAsamples > 10)
+        if (percentageOfHighASamples < 90 && percentageOfHighASamples > 10)
           MSF_LOG(F(" <--- NOISY"));
         MSF_LOGLN();
 
         // Prepare for next second
         currentSecond++;
         nextSecondBoundary += 1000;
-        countOfHighBitAsamples = 0;
-        totalCountOfBitAsamples = 0;
-        countOfHighBitBsamples = 0;
+        countOfHighBitASamples = 0;
+        totalCountOfBitASamples = 0;
+        countOfHighBitBSamples = 0;
         totalCountOfBitBSamples = 0;
       }
     }
