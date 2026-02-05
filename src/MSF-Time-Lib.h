@@ -97,41 +97,41 @@ private:
     // identify the two samples that are about to leave their windoes (silence, carrier)
 
     // find the index of the sample thats about to go from silence window to carrier window
-    int indexAtSilenceEdge = rollingBufferHead - MINUTE_MARKER_NUM_SAMPLES_SILENCE;
+    int indexAtSilenceEdge = this->rollingBufferHead - MINUTE_MARKER_NUM_SAMPLES_SILENCE;
     if (indexAtSilenceEdge < 0)
       indexAtSilenceEdge += MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_NUM_ELEMENTS;
 
     // find the index of the sample thats about to fall off the carrier window into our unmonitored zone
-    int indexAtCarrierEdge = rollingBufferHead - LOOKBACK_TOTAL;
+    int indexAtCarrierEdge = this->rollingBufferHead - LOOKBACK_TOTAL;
     if (indexAtCarrierEdge < 0)
       indexAtCarrierEdge += MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_NUM_ELEMENTS;
 
     // read the samples at these two edges before we overwrite the rollingBufferHead with the new sample
-    bool sampleLeavingSilence = readBit(buffer, indexAtSilenceEdge);
-    bool sampleLeavingCarrier = readBit(buffer, indexAtCarrierEdge);
+    bool sampleLeavingSilence = this->readBit(this->buffer, indexAtSilenceEdge);
+    bool sampleLeavingCarrier = this->readBit(this->buffer, indexAtCarrierEdge);
 
     // --- CARRIER REGION UPDATES ---
 
     // if the sample that is leaving the silence window into carrier window is carrier its good for our minute marker, so we increase the score
     if (sampleLeavingSilence == 1)
-      rollingBufferCarrierWindowScore++;
+      this->rollingBufferCarrierWindowScore++;
 
     // if the sample that is leaving our carrier window is carrier, we are losing a good sample for our minute marker, so we decrease the score
     if (sampleLeavingCarrier == 1)
-      rollingBufferCarrierWindowScore--;
+      this->rollingBufferCarrierWindowScore--;
 
     // --- SILENCE REGION UPDATES ---
 
     // the new sample that is entering the silence window, if its is silence (0) it is good for our minute marker, so we increase the score
     if (carrierValue == 0)
-      rollingBufferSilenceWindowScore++;
+      this->rollingBufferSilenceWindowScore++;
 
     // if sample that is leaving silence is silence (0) we are losing a good sample for our minute marker, so we decrease the score
     if (sampleLeavingSilence == 0)
-      rollingBufferSilenceWindowScore--;
+      this->rollingBufferSilenceWindowScore--;
 
     // push the new sample into the buffer, this will overwrite the sample at rollingBufferHead, but we have already accounted for that sample leaving the windows and updated our scores accordingly
-    writeBit(this->buffer, this->rollingBufferHead, carrierValue);
+    this->writeBit(this->buffer, this->rollingBufferHead, carrierValue);
 
     // if we reached the end of our buffer go back in circle
     this->rollingBufferHead++;
@@ -163,7 +163,7 @@ private:
     {
       if (startIdx + i >= 60)
         break;
-      if (readBit(packedA, startIdx + i))
+      if (this->readBit(this->packedA, startIdx + i))
         val += weights[i];
     }
     return val;
@@ -179,10 +179,10 @@ private:
     int ones = 0;
     for (int i = 0; i < count; i++)
     {
-      if (readBit(packedA, startIdx + i))
+      if (this->readBit(this->packedA, startIdx + i))
         ones++;
     }
-    if (readBit(packedB, parityBitIdx))
+    if (this->readBit(this->packedB, parityBitIdx))
       ones++;
     return (ones % 2 != 0);
   }
@@ -235,7 +235,7 @@ private:
         lastSample = now;
         // MSF spec defines presence of carrier as binary 0 and absence of carrier (silence) as binary 1
         // but we dont invert here because we are only intersted in carrier presence or absence
-        int currentScore = updateRollingBuffer(_reader());
+        int currentScore = this->updateRollingBuffer(this->_reader());
         lastCalculatedScore = currentScore;
 
         if (currentScore > maxScoreSeen)
@@ -272,7 +272,7 @@ private:
   /// @return Timestamp in milliseconds of when we think the next minute starts, which is when we should start reading the bits of MSF signal
   uint32_t calculate_next_bit_retreival_window_start_timestamp()
   {
-    uint32_t prevMinuteMillis = syncToMinuteMarker();
+    uint32_t prevMinuteMillis = this->syncToMinuteMarker();
 
     // calculate how long we need to wait
     uint32_t elapsedSinceMarker = millis() - prevMinuteMillis;
@@ -301,8 +301,8 @@ public:
     uint32_t lastSample = 0;
 
     // Reset Member Variables
-    memset(packedA, 0, sizeof(packedA));
-    memset(packedB, 0, sizeof(packedB));
+    memset(this->packedA, 0, sizeof(this->packedA));
+    memset(this->packedB, 0, sizeof(this->packedB));
 
     MSF_LOG(F("[MSF] Sync Complete. Aligning to next minute (Will wait for: "));
     MSF_LOG((minuteStart - millis()));
@@ -334,8 +334,8 @@ public:
         int ms = elapsed % 1000;
         // MSF spec defines presence of carrier as binary 0 and absence of carrier (silence) as binary 1
         // we invert the carrier state here to make it more intuitive to work with, where 1 means presence of carrier and 0 means silence
-        bool carrierState = _reader();
-        bool binaryState = !carrierState; 
+        bool carrierState = this->_reader();
+        bool binaryState = !carrierState;
 
         // Accumulate data if we are inside the specific windows for Bit A or Bit B
         // we read multiple time in the window to be more resilient and later we will take
@@ -361,10 +361,10 @@ public:
         int percentageOfHighAsamples = (totalCountOfBitAsamples > 0) ? (countOfHighBitAsamples * 100) / totalCountOfBitAsamples : 0;
         int percentageOfHighBitBsamples = (totalCountOfBitBSamples > 0) ? (countOfHighBitBsamples * 100) / totalCountOfBitBSamples : 0;
 
-        bool valA = (percentageOfHighAsamples > 60); // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
-        bool valB = (percentageOfHighBitBsamples > 60); // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
-        writeBit(packedA, currentSecond, valA); // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
-        writeBit(packedB, currentSecond, valB); // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
+        bool valA = (percentageOfHighAsamples > 60);        // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
+        bool valB = (percentageOfHighBitBsamples > 60);     // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
+        this->writeBit(this->packedA, currentSecond, valA); // if more than 60% of the samples in bit A window are high, we consider the bit to be 1, otherwise 0
+        this->writeBit(this->packedB, currentSecond, valB); // if more than 60% of the samples in bit B window are high, we consider the bit to be 1, otherwise 0
 
         MSF_LOG(F("[MSF] Sec "));
         if (currentSecond < 10)
@@ -412,19 +412,19 @@ public:
     static const int wHour[] = {20, 10, 8, 4, 2, 1};
     static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
 
-    int rawYear = decodeBCD(17, 8, wYear);
+    int rawYear = this->decodeBCD(17, 8, wYear);
     result.time.Year = rawYear + 30;
-    result.time.Month = decodeBCD(25, 5, wMonth);
-    result.time.Day = decodeBCD(30, 6, wDay);
-    result.time.Hour = decodeBCD(39, 6, wHour);
-    result.time.Minute = decodeBCD(45, 7, wMin);
-    result.time.Wday = decodeBCD(36, 3, wDOW) + 1;
+    result.time.Month = this->decodeBCD(25, 5, wMonth);
+    result.time.Day = this->decodeBCD(30, 6, wDay);
+    result.time.Hour = this->decodeBCD(39, 6, wHour);
+    result.time.Minute = this->decodeBCD(45, 7, wMin);
+    result.time.Wday = this->decodeBCD(36, 3, wDOW) + 1;
 
     // each piece of information has its own parity bit as in MSF spec
-    bool pYear = checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedA, and its parity bit is located at bit 54 in packedB
-    bool pDate = checkParity(25, 11, 55); // date (month, day, dow) is located from bit 25 to bit 35 in packedA, and its parity bit is located at bit 55 in packedB
-    bool pDOW = checkParity(36, 3, 56);   // day of week is located from bit 36 to bit 38 in packedA, and its parity bit is located at bit 56 in packedB
-    bool pTime = checkParity(39, 13, 57); // time (hour, minute) is located from bit 39 to bit 51 in packedA, and its parity bit is located at bit 57 in packedB
+    bool pYear = this->checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedA, and its parity bit is located at bit 54 in packedB
+    bool pDate = this->checkParity(25, 11, 55); // date (month, day, dow) is located from bit 25 to bit 35 in packedA, and its parity bit is located at bit 55 in packedB
+    bool pDOW = this->checkParity(36, 3, 56);   // day of week is located from bit 36 to bit 38 in packedA, and its parity bit is located at bit 56 in packedB
+    bool pTime = this->checkParity(39, 13, 57); // time (hour, minute) is located from bit 39 to bit 51 in packedA, and its parity bit is located at bit 57 in packedB
 
     bool sane = (result.time.Month >= 1 && result.time.Month <= 12) &&
                 (result.time.Day >= 1 && result.time.Day <= 31) &&
@@ -442,7 +442,7 @@ public:
     while (true)
     {
       MSF_LOGLN(F("\n[MSF] Attempting to acquire atomic time..."));
-      MSFData res = get_time();
+      MSFData res = this->get_time();
 
       if (res.checksum_passed)
       {
