@@ -1,10 +1,6 @@
 #include <Arduino.h>
 
-// if passed in via -D MSF_TIME_LIB_DEBUG, if you are not using -D argument and just using Arduino
-// IDE, just remove this and write #define MSF_TIME_LIB_DEBUG 1 directly
-#ifndef MSF_TIME_LIB_DEBUG
 #define MSF_TIME_LIB_DEBUG 1
-#endif
 
 #include <MSF-Time-Lib.h>
 
