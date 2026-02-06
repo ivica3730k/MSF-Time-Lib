@@ -129,8 +129,7 @@ This will output detailed logs to the Serial Monitor:
 
 Please check the `examples/` folder in this repository for complete, ready-to-run sketches:
 
-* **BasicRead:** Simple sketch to fetch time and print it to Serial.
-* **TimeLibIntegration:** Example of how to set the Arduino TimeLib library with the decoded MSF time.
+* **TimeLibIntegration:** Example of how to to read the time, write it to serial and use `TimeLib` function to set it as the system time.
 
 ## Currently out of scope for this library
 
