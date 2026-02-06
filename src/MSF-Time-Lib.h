@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <TimeLib.h> // https://github.com/PaulStoffregen/Time
 
 #ifndef MSF_TIME_LIB_DEBUG
 #define MSF_TIME_LIB_DEBUG 1
@@ -15,10 +14,17 @@
 
 struct MSFData
 {
-  tmElements_t time;
-  bool checksum_passed;
+  uint8_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  const uint8_t second = 0; // MSF signal does not transmit seconds, we know its 0 because of how we are syncing to the minute marker transition
+  uint8_t dayOfTheWeek;
+  bool checksumPassed;
 };
-
+/// @brief Initializes the MSFReceiver class which can be used to read time from MSF radio signal.
+/// @tparam SAMPLE_RATE_MS  The sample rate in milliseconds at which the MSFReceiver will read the input pin to detect the presence or absence of the carrier signal while looking for the minute marker.
 template <int SAMPLE_RATE_MS>
 class MSFReceiver
 {
@@ -289,6 +295,8 @@ private:
   }
 
 public:
+  /// @brief Initializes the MSFReceiver with a reader function that reads the current state of the carrier
+  /// @param readerFunc A function pointer provided by the user code that reads the current state of the carrier (true for carrier, false for silence).
   MSFReceiver(ReaderFunction readerFunc) : _reader(readerFunc) {}
 
   /// @brief Reads the MSF signal and outputs the decoded time and checksum result.
@@ -297,8 +305,8 @@ public:
   {
 
     uint32_t minuteStart = this->get_next_bit_retrieval_timestamp();
+    // TODO: Instead of relying on calculating offsets from 0th second, we can detect the second boundary by 700ms of carrier followed by 100ms of silence in every second
     uint32_t nextSecondBoundary = 1000;
-    uint32_t lastSample = 0;
 
     // Reset Member Variables
     memset(this->packedA, 0, sizeof(this->packedA));
@@ -313,7 +321,7 @@ public:
     {
       delay(1);
     }
-    MSF_LOGLN(F(" Starting decode NOW."));
+    MSF_LOGLN(F("[MSF] Starting decode NOW."));
 
     MSF_LOGLN(F("[MSF] ------------------------------------------------"));
     MSF_LOGLN(F("[MSF] SEC |   BIT A (135-165ms)   |   BIT B (235-265ms)"));
@@ -322,15 +330,17 @@ public:
     int countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
     int countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
     int currentSecond = 0;
-
+    // uint32_t lastSample = 0;
     while (currentSecond < 60)
     {
       uint32_t now = millis();
       uint32_t elapsed = now - minuteStart;
 
-      if (now - lastSample >= SAMPLE_RATE_MS)
+      // if (now - lastSample >= SAMPLE_RATE_MS)
+      if (true) // read as often as possible by hardware
       {
-        lastSample = now;
+        delayMicroseconds(500); // delay to max of cca 2kHz sampling, minus some processing overhead, just in case read makes an RF spike in hardware
+        // lastSample = now;
         int ms = elapsed % 1000;
         // MSF spec defines presence of carrier as binary 0 and absence of carrier (silence) as binary 1
         // we invert the carrier state here to make it more intuitive to work with, where 1 means presence of carrier and 0 means silence
@@ -398,12 +408,6 @@ public:
 
     // 3. DECODE
     MSFData result;
-    result.time.Second = 0;
-    result.time.Minute = 0;
-    result.time.Hour = 0;
-    result.time.Day = 1;
-    result.time.Month = 1;
-    result.time.Year = 0;
 
     static const int wYear[] = {80, 40, 20, 10, 8, 4, 2, 1};
     static const int wMonth[] = {10, 8, 4, 2, 1};
@@ -413,12 +417,12 @@ public:
     static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
 
     int rawYear = this->decodeBCD(17, 8, wYear);
-    result.time.Year = rawYear + 30;
-    result.time.Month = this->decodeBCD(25, 5, wMonth);
-    result.time.Day = this->decodeBCD(30, 6, wDay);
-    result.time.Hour = this->decodeBCD(39, 6, wHour);
-    result.time.Minute = this->decodeBCD(45, 7, wMin);
-    result.time.Wday = this->decodeBCD(36, 3, wDOW) + 1;
+    result.year = rawYear + 30;
+    result.month = this->decodeBCD(25, 5, wMonth);
+    result.day = this->decodeBCD(30, 6, wDay);
+    result.hour = this->decodeBCD(39, 6, wHour);
+    result.minute = this->decodeBCD(45, 7, wMin);
+    result.dayOfTheWeek = this->decodeBCD(36, 3, wDOW) + 1;
 
     // each piece of information has its own parity bit as in MSF spec
     bool pYear = this->checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedA, and its parity bit is located at bit 54 in packedB
@@ -426,11 +430,11 @@ public:
     bool pDOW = this->checkParity(36, 3, 56);   // day of week is located from bit 36 to bit 38 in packedA, and its parity bit is located at bit 56 in packedB
     bool pTime = this->checkParity(39, 13, 57); // time (hour, minute) is located from bit 39 to bit 51 in packedA, and its parity bit is located at bit 57 in packedB
 
-    bool sane = (result.time.Month >= 1 && result.time.Month <= 12) &&
-                (result.time.Day >= 1 && result.time.Day <= 31) &&
-                (result.time.Hour <= 23) && (result.time.Minute <= 59);
+    bool sane = (result.month >= 1 && result.month <= 12) &&
+                (result.day >= 1 && result.day <= 31) &&
+                (result.hour <= 23) && (result.minute <= 59);
 
-    result.checksum_passed = pYear && pDate && pDOW && pTime && sane;
+    result.checksumPassed = pYear && pDate && pDOW && pTime && sane;
 
     return result;
   }
@@ -444,7 +448,7 @@ public:
       MSF_LOGLN(F("\n[MSF] Attempting to acquire atomic time..."));
       MSFData res = this->get_time();
 
-      if (res.checksum_passed)
+      if (res.checksumPassed)
       {
         MSF_LOGLN(F("[MSF] SUCCESS! Checksum Passed."));
         return res;
