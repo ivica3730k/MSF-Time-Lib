@@ -148,10 +148,6 @@ This code currently occupies the main loop while syncing and acquiring data. Whi
 
 ## How to install this library
 
-### Navigate to the "Releses" section on github and download the latest release as a zip file
-
-![alt text](image.png)
-
-### In the Arduino IDE, go to "Sketch" -> "Include Library" -> "Add .ZIP Library..." and select the downloaded zip file
-
-### Navigate to the "examples" folder in this repository and open the "simple.ino" sketch and compile it
+1. Navigate to the "Releases" section on github and download the latest release as a zip file
+2. In the Arduino IDE, go to "Sketch" -> "Include Library" -> "Add .ZIP Library..." and select the downloaded zip file
+3. Navigate to the "examples" folder in this repository and open the "simple.ino" sketch and compile it
