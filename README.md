@@ -129,7 +129,8 @@ This will output detailed logs to the Serial Monitor:
 
 Please check the `examples/` folder in this repository for complete, ready-to-run sketches:
 
-* **TimeLibIntegration:** Example of how to to read the time, write it to serial and use `TimeLib` function to set it as the system time.
+* **simple:** Simple sketch to fetch time and print it to Serial.
+* **time_lib_integration:** Example of how to set the Arduino TimeLib library with the decoded MSF time.
 
 ## Currently out of scope for this library
 
@@ -141,6 +142,16 @@ Currently on leap events the checksum will just fail and library will discard th
 
 There is some delay() blocks in the code which is not very friendly with Espressif platforms. Later these sleeps will be handled with while block, timers and yield() calls to make sure the code works reliability on those platforms.
 
-## Non-blocking mode
+### Non-blocking mode
 
 This code currently occupies the main loop while syncing and acquiring data. While this could be done with interrupt pins or some scheduler library, this is not in scope of this library and will probably be a whole another library with revisited logic flow.
+
+## How to install this library
+
+### Navigate to the "Releses" section on github and download the latest release as a zip file
+
+![alt text](image.png)
+
+### In the Arduino IDE, go to "Sketch" -> "Include Library" -> "Add .ZIP Library..." and select the downloaded zip file
+
+### Navigate to the "examples" folder in this repository and open the "simple.ino" sketch and compile it
