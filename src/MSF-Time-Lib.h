@@ -448,9 +448,7 @@ class MSFReceiver {
     static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
 
     int rawYear = this->decodeBCD(17, 8, wYear);
-    MSF_TIME_LIB_LOGLN(rawYear);
     result.year += rawYear;
-    MSF_TIME_LIB_LOGLN(result.year);
     result.month = this->decodeBCD(25, 5, wMonth);
     result.day = this->decodeBCD(30, 6, wDay);
     result.hour = this->decodeBCD(39, 6, wHour);
