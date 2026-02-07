@@ -1,0 +1,19 @@
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+MSFReceiver	KEYWORD1
+MSFData	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+get_time	KEYWORD2
+get_time_with_retry	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+MSF_TIME_LIB_DEBUG	LITERAL1
