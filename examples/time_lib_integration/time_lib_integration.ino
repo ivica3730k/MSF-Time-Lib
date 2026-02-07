@@ -37,8 +37,13 @@ void loop() {
     MSFData validData = msf.get_time_with_retry();
     // put the time we got from MSF signal into TimeLib format and set the system time, now we can
     // use TimeLib functions to get the current time and print it in human readable format
-    tmElements_t tElements_time = {validData.second, validData.minute, validData.hour,
-                                   validData.day,    validData.month,  validData.year};
+    tmElements_t tElements_time;
+    tElements_time.Second = validData.second;
+    tElements_time.Minute = validData.minute;
+    tElements_time.Hour = validData.hour;
+    tElements_time.Day = validData.day;
+    tElements_time.Month = validData.month;
+    tElements_time.Year = uint8_t(validData.year - 1970);
     setTime(makeTime(tElements_time));
     Serial.print(F("RESULT: "));
     Serial.print(year());
