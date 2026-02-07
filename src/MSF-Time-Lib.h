@@ -9,7 +9,7 @@
 #endif
 
 struct MSFData {
-  uint8_t year;
+  uint8_t year = 2000; // MSF time spec gives year in 00 to 99 range, whoever maitains this in 2100 can change it :P
   uint8_t month;
   uint8_t day;
   uint8_t hour;
@@ -447,7 +447,7 @@ class MSFReceiver {
     static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
 
     int rawYear = this->decodeBCD(17, 8, wYear);
-    result.year = rawYear + 30;
+    result.year += rawYear;
     result.month = this->decodeBCD(25, 5, wMonth);
     result.day = this->decodeBCD(30, 6, wDay);
     result.hour = this->decodeBCD(39, 6, wHour);
