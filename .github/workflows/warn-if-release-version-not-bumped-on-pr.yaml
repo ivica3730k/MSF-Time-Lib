@@ -1,4 +1,4 @@
-name: Warn if release version not bumped on PR to main
+name: Warn if library version not bumped
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  check-is-version-bumped:
+  check-if-version-needs-bumping:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,6 +19,39 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ------------------------------------------------------------
+      # Detect whether important files changed
+      # ------------------------------------------------------------
+      - name: Detect source changes
+        id: changes
+        run: |
+          git fetch origin main
+
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          IMPORTANT_CHANGED=false
+          KEYWORDS_CHANGED=false
+
+          for file in $CHANGED_FILES; do
+            case "$file" in
+              *.c|*.cpp|*.h|*.hpp|*.ino|src/*)
+                IMPORTANT_CHANGED=true
+                ;;
+              keywords.txt)
+                KEYWORDS_CHANGED=true
+                ;;
+            esac
+          done
+
+          echo "important=$IMPORTANT_CHANGED" >> $GITHUB_OUTPUT
+          echo "keywords=$KEYWORDS_CHANGED" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------
+      # Read versions
+      # ------------------------------------------------------------
       - name: Read version from PR
         id: pr_version
         run: |
@@ -28,30 +61,48 @@ jobs:
       - name: Read version from main
         id: main_version
         run: |
-          git fetch origin main
           git show origin/main:library.properties > main_library.properties
           MAIN_VERSION=$(grep '^version=' main_library.properties | cut -d'=' -f2 | tr -d ' ')
           echo "version=$MAIN_VERSION" >> $GITHUB_OUTPUT
 
-      # Create or update sticky warning
+      # ------------------------------------------------------------
+      # Add or update sticky warning
+      # ------------------------------------------------------------
       - name: Add sticky warning comment
-        if: steps.pr_version.outputs.version == steps.main_version.outputs.version
+        if: steps.changes.outputs.important == 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: version-check
           message: |
-            ⚠️ **Version not bumped**
+            ⚠️ **Library version must be bumped**
 
-            The `library.properties` version in this PR is the same as the version on `main`.
+            This PR modifies source files (`.c`, `.cpp`, `.h`, `.ino`, or files inside `src/`),
+            but the version in `library.properties` was not changed.
 
-            If this PR introduces user-visible changes, please bump the version
-            before merging so a new Arduino Library Manager release can be created.
+            Arduino Library Manager only publishes new releases when the version changes.
+
+            Please bump:
+
+            ```
+            version=x.y.z
+            ```
+
+            to a new version before merging.
+
+            ---
+
+            💡 **Reminder:**
+            If this PR introduces new public classes, structs, or functions,
+            please also update `keywords.txt` so Arduino IDE syntax highlighting
+            stays correct.
 
             _(This message will automatically disappear once the version is updated.)_
 
-      # Remove sticky comment when version is bumped
+      # ------------------------------------------------------------
+      # Remove sticky warning when no longer needed
+      # ------------------------------------------------------------
       - name: Remove sticky warning
-        if: steps.pr_version.outputs.version != steps.main_version.outputs.version
+        if: steps.changes.outputs.important != 'true' || steps.pr_version.outputs.version != steps.main_version.outputs.version
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: version-check
