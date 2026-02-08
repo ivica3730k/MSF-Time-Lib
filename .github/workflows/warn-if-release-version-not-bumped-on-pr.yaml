@@ -12,7 +12,6 @@ permissions:
 jobs:
   check-if-version-needs-bumping:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
@@ -20,45 +19,36 @@ jobs:
           fetch-depth: 0
 
       # ------------------------------------------------------------
-      # Detect whether important files changed
+      # Detect important changes
       # ------------------------------------------------------------
-      - name: Detect source changes
+      - name: Detect important changes
         id: changes
         run: |
           git fetch origin main
 
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
-
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-
           IMPORTANT_CHANGED=false
-          KEYWORDS_CHANGED=false
 
-          for file in $CHANGED_FILES; do
+          for file in $(git diff --name-only origin/main...HEAD); do
             case "$file" in
               *.c|*.cpp|*.h|*.hpp|*.ino|src/*)
                 IMPORTANT_CHANGED=true
-                ;;
-              keywords.txt)
-                KEYWORDS_CHANGED=true
+                break
                 ;;
             esac
           done
 
           echo "important=$IMPORTANT_CHANGED" >> $GITHUB_OUTPUT
-          echo "keywords=$KEYWORDS_CHANGED" >> $GITHUB_OUTPUT
 
       # ------------------------------------------------------------
       # Read versions
       # ------------------------------------------------------------
-      - name: Read version from PR
+      - name: Read PR version
         id: pr_version
         run: |
           PR_VERSION=$(grep '^version=' library.properties | cut -d'=' -f2 | tr -d ' ')
           echo "version=$PR_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Read version from main
+      - name: Read main version
         id: main_version
         run: |
           git show origin/main:library.properties > main_library.properties
@@ -66,20 +56,21 @@ jobs:
           echo "version=$MAIN_VERSION" >> $GITHUB_OUTPUT
 
       # ------------------------------------------------------------
-      # Add or update sticky warning
+      # ERROR: important files changed but version not bumped
       # ------------------------------------------------------------
-      - name: Add sticky warning comment
+      - name: Sticky error comment
         if: steps.changes.outputs.important == 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: version-check
           message: |
-            ⚠️ **Library version must be bumped**
+            ❌ **Version bump required**
 
-            This PR modifies source files (`.c`, `.cpp`, `.h`, `.ino`, or files inside `src/`),
-            but the version in `library.properties` was not changed.
+            This PR modifies library source files but the version in
+            `library.properties` was not increased.
 
-            Arduino Library Manager only publishes new releases when the version changes.
+            Arduino Library Manager requires a new version for any
+            change affecting compiled code.
 
             Please bump:
 
@@ -87,22 +78,36 @@ jobs:
             version=x.y.z
             ```
 
-            to a new version before merging.
+            before merging.
 
-            ---
-
-            💡 **Reminder:**
-            If this PR introduces new public classes, structs, or functions,
-            please also update `keywords.txt` so Arduino IDE syntax highlighting
-            stays correct.
-
-            _(This message will automatically disappear once the version is updated.)_
+      - name: Fail job (version not bumped)
+        if: steps.changes.outputs.important == 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
+        run: |
+          echo "Important files changed but version was not bumped."
+          exit 1
 
       # ------------------------------------------------------------
-      # Remove sticky warning when no longer needed
+      # WARNING: no important changes but version unchanged
       # ------------------------------------------------------------
-      - name: Remove sticky warning
-        if: steps.changes.outputs.important != 'true' || steps.pr_version.outputs.version != steps.main_version.outputs.version
+      - name: Sticky warning comment
+        if: steps.changes.outputs.important != 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          message: |
+            ⚠️ **Version not bumped**
+
+            The version in `library.properties` was not changed.
+
+            This is OK because no source files were modified, but if this
+            PR introduces user-visible changes you may still want to bump
+            the version.
+
+      # ------------------------------------------------------------
+      # Remove comment when version is bumped
+      # ------------------------------------------------------------
+      - name: Remove sticky comment
+        if: steps.pr_version.outputs.version != steps.main_version.outputs.version
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: version-check
