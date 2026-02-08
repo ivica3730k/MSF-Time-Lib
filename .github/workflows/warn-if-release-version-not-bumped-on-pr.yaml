@@ -1,0 +1,58 @@
+name: Warn if release version not bumped on PR to main
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from PR
+        id: pr_version
+        run: |
+          PR_VERSION=$(grep '^version=' library.properties | cut -d'=' -f2 | tr -d ' ')
+          echo "version=$PR_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Read version from main
+        id: main_version
+        run: |
+          git fetch origin main
+          git show origin/main:library.properties > main_library.properties
+          MAIN_VERSION=$(grep '^version=' main_library.properties | cut -d'=' -f2 | tr -d ' ')
+          echo "version=$MAIN_VERSION" >> $GITHUB_OUTPUT
+
+      # Create or update sticky warning
+      - name: Add sticky warning comment
+        if: steps.pr_version.outputs.version == steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          message: |
+            ⚠️ **Version not bumped**
+
+            The `library.properties` version in this PR is the same as the version on `main`.
+
+            If this PR introduces user-visible changes, please bump the version
+            before merging so a new Arduino Library Manager release can be created.
+
+            _(This message will automatically disappear once the version is updated.)_
+
+      # Remove sticky comment when version is bumped
+      - name: Remove sticky warning
+        if: steps.pr_version.outputs.version != steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          delete: true
