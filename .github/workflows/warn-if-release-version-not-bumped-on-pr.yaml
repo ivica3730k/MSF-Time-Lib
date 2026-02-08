@@ -30,7 +30,7 @@ jobs:
 
           for file in $(git diff --name-only origin/main...HEAD); do
             case "$file" in
-              *.c|*.cpp|*.h|*.hpp|*.ino|src/*)
+              *.c|*.cpp|*.h|*.hpp|*.ino|src/*|keywords.txt)
                 IMPORTANT_CHANGED=true
                 break
                 ;;
