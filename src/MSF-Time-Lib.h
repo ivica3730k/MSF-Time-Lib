@@ -475,6 +475,16 @@ class MSFReceiver {
                 (result.minute <= 59);
 
     result.checksumPassed = pYear && pDate && pDOW && pTime && sane;
+    if (!result.checksumPassed) {
+      MSF_TIME_LIB_LOGLN(F("[MSF] Checksum failed!"));
+      if (!pYear) MSF_TIME_LIB_LOGLN(F("[MSF] Year parity check failed"));
+      if (!pDate) MSF_TIME_LIB_LOGLN(F("[MSF] Date parity check failed"));
+      if (!pDOW) MSF_TIME_LIB_LOGLN(F("[MSF] Day of week parity check failed"));
+      if (!pTime) MSF_TIME_LIB_LOGLN(F("[MSF] Time parity check failed"));
+      if (!sane) MSF_TIME_LIB_LOGLN(F("[MSF] Sanity check failed"));
+    } else {
+      MSF_TIME_LIB_LOGLN(F("[MSF] Checksum passed! Time is valid."));
+    }
 
     return result;
   }
