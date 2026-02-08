@@ -1,0 +1,33 @@
+name: Re-run pre-commit hooks on PR to main
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  rerun-pre-commit-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pre-commit hooks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit (fail on any issue)
+        run: pre-commit run --all-files --show-diff-on-failure

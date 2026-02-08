@@ -1,0 +1,114 @@
+name: Warn if library version not bumped
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-if-version-needs-bumping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------
+      # Detect important changes
+      # ------------------------------------------------------------
+      - name: Detect important changes
+        id: changes
+        run: |
+          git fetch origin main
+
+          IMPORTANT_CHANGED=false
+
+          for file in $(git diff --name-only origin/main...HEAD); do
+            case "$file" in
+              *.c|*.cpp|*.h|*.hpp|*.ino|src/*|keywords.txt)
+                IMPORTANT_CHANGED=true
+                break
+                ;;
+            esac
+          done
+
+          echo "important=$IMPORTANT_CHANGED" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------
+      # Read versions
+      # ------------------------------------------------------------
+      - name: Read PR version
+        id: pr_version
+        run: |
+          PR_VERSION=$(grep '^version=' library.properties | cut -d'=' -f2 | tr -d ' ')
+          echo "version=$PR_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Read main version
+        id: main_version
+        run: |
+          git show origin/main:library.properties > main_library.properties
+          MAIN_VERSION=$(grep '^version=' main_library.properties | cut -d'=' -f2 | tr -d ' ')
+          echo "version=$MAIN_VERSION" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------
+      # ERROR: important files changed but version not bumped
+      # ------------------------------------------------------------
+      - name: Sticky error comment
+        if: steps.changes.outputs.important == 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          message: |
+            ❌ **Version bump required**
+
+            This PR modifies library source files but the version in
+            `library.properties` was not increased.
+
+            Arduino Library Manager requires a new version for any
+            change affecting compiled code.
+
+            Please bump:
+
+            ```
+            version=x.y.z
+            ```
+
+            before merging.
+
+      - name: Fail job (version not bumped)
+        if: steps.changes.outputs.important == 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
+        run: |
+          echo "Important files changed but version was not bumped."
+          exit 1
+
+      # ------------------------------------------------------------
+      # WARNING: no important changes but version unchanged
+      # ------------------------------------------------------------
+      - name: Sticky warning comment
+        if: steps.changes.outputs.important != 'true' && steps.pr_version.outputs.version == steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          message: |
+            ⚠️ **Version not bumped**
+
+            The version in `library.properties` was not changed.
+
+            This is OK because no source files were modified, but if this
+            PR introduces user-visible changes you may still want to bump
+            the version.
+
+      # ------------------------------------------------------------
+      # Remove comment when version is bumped
+      # ------------------------------------------------------------
+      - name: Remove sticky comment
+        if: steps.pr_version.outputs.version != steps.main_version.outputs.version
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: version-check
+          delete: true
