@@ -2,4 +2,5 @@
 BasedOnStyle: Google
 IndentWidth: 2
 ColumnLimit: 100
+
 # Add your own overrides here if needed

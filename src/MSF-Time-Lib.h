@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 
 #if MSF_TIME_LIB_DEBUG
@@ -15,8 +17,8 @@ struct MSFData {
   uint8_t day;
   uint8_t hour;
   uint8_t minute;
-  const uint8_t second = 0;  // MSF signal does not transmit seconds, we know its 0 because of how
-                             // we are syncing to the minute marker transition
+  uint8_t second = 0;  // MSF signal does not transmit seconds, we know its 0 because of how
+                       // we are syncing to the minute marker transition
   uint8_t dayOfTheWeek;
   bool checksumPassed;
 };
@@ -27,6 +29,7 @@ struct MSFData {
 /// carrier signal while looking for the minute marker.
 template <int SAMPLE_RATE_MS>
 class MSFReceiver {
+  static_assert(SAMPLE_RATE_MS > 0, "SAMPLE_RATE_MS must be a positive integer");
   using ReaderFunction = bool (*)();
 
  private:
@@ -168,7 +171,7 @@ class MSFReceiver {
     if (this->rollingBufferHead >= MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_NUM_ELEMENTS)
       this->rollingBufferHead = 0;
 
-    // return both scores togather, where a top score is good carrier window and
+    // return both scores together, where a top score is good carrier window and
     // good silence window
     return this->rollingBufferCarrierWindowScore + this->rollingBufferSilenceWindowScore;
   }
@@ -238,7 +241,7 @@ class MSFReceiver {
     // B bits of MFS signal.
 
     // to avoid always syncing on the same spot if we are very close to the
-    // minute marker, in case we miss it first time we ∏dont want to keep
+    // minute marker, in case we miss it first time we don't want to keep
     // missing it
     this->sleepForRandomTime();
 
@@ -292,6 +295,8 @@ class MSFReceiver {
     // we subtract 500ms because the silence window on minute marker ends 500ms
     // after transition between carrier and silence, but that transition
     // actually marks the start of the minute
+    // NOTE: underflow is not possible here because sleepForRandomTime() waits
+    // 1-5 seconds before the scan begins, so timeOfMaxScore is always >= ~1000
     return timeOfMaxScore - 500;
   }
   /// @brief Helper function that waits until the next minute boundary after
@@ -309,9 +314,9 @@ class MSFReceiver {
     // NEXT cycle. this is needed as we are listening for more than 60s in
     // syncToMinuteMarker function so if we get result very early we cant just
     // wait for hardcoded 60s, we might need more
-    uint32_t waitInMiliseconds = 60000 - (elapsedSinceMarker % 60000);
+    uint32_t waitInMilliseconds = 60000 - (elapsedSinceMarker % 60000);
 
-    uint32_t nextMinuteMillis = millis() + waitInMiliseconds;
+    uint32_t nextMinuteMillis = millis() + waitInMilliseconds;
 
     return nextMinuteMillis;
   }
@@ -331,7 +336,6 @@ class MSFReceiver {
     // TODO: Instead of relying on calculating offsets from 0th second, we can
     // detect the second boundary by 700ms of carrier followed by 100ms of
     // silence in every second
-    uint32_t nextSecondBoundary = 1000;
 
     // Reset Member Variables
     memset(this->packedABits, 0, sizeof(this->packedABits));
@@ -341,72 +345,58 @@ class MSFReceiver {
     MSF_TIME_LIB_LOG((minuteStart - millis()));
     MSF_TIME_LIB_LOGLN(F("ms)..."));
 
-    // 3. WAIT
-    while (millis() < minuteStart) {
+    // 3. WAIT (use subtraction to handle millis() wraparound after ~49.7 days)
+    uint32_t waitStart = millis();
+    uint32_t waitDuration = minuteStart - waitStart;
+    while (millis() - waitStart < waitDuration) {
       delay(1);
     }
     MSF_TIME_LIB_LOGLN(F("[MSF] Starting decode NOW."));
 
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
-    MSF_TIME_LIB_LOGLN(F("[MSF] SEC |   BIT A (135-165ms)   |   BIT B (235-265ms)"));
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] SEC    | A (135-165) | B (235-265)"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
     int countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
     int countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
-    int currentSecond = 0;
+    uint32_t currentSecond = 0;
+    uint32_t nextSecondMs = 1000;
     while (currentSecond < 60) {
       uint32_t elapsedMs = millis() - minuteStart;
 
-      if (true)  // read as often as possible by hardware
-      {
-        // delay to max of cca 2kHz sampling, minus some processing overhead,
-        // just in case read makes an RF spike in hardware and to make sure our
-        // count variables dont overflow
-        delayMicroseconds(500);
+      // delay to max of cca 2kHz sampling, minus some processing overhead,
+      // just in case read makes an RF spike in hardware
+      delayMicroseconds(500);
 
-        int currentMsInCurrentSecond = elapsedMs % 1000;
-        // MSF spec defines presence of carrier as binary 0 and absence of
-        // carrier (silence) as binary 1 we invert the carrier state here to
-        // make it more intuitive to work with, where 1 means presence of
-        // carrier and 0 means silence
-        bool carrierState = this->carrierStateReader();
-        bool binaryState = !carrierState;
+      uint32_t currentMsInCurrentSecond = elapsedMs % 1000;
+      // MSF spec defines presence of carrier as binary 0 and absence of
+      // carrier (silence) as binary 1 we invert the carrier state here to
+      // make it more intuitive to work with, where 1 means presence of
+      // carrier and 0 means silence
+      bool carrierState = this->carrierStateReader();
+      bool binaryState = !carrierState;
 
-        // Accumulate data if we are inside the specific windows for Bit A or
-        // Bit B we read multiple time in the window to be more resilient and
-        // later we will take vote based on percentage of samples
-        if (currentMsInCurrentSecond >= 135 && currentMsInCurrentSecond <= 165) {
-          totalCountOfBitASamples++;
-          if (binaryState) countOfHighBitASamples++;
-        } else if (currentMsInCurrentSecond >= 235 && currentMsInCurrentSecond <= 265) {
-          totalCountOfBitBSamples++;
-          if (binaryState) countOfHighBitBSamples++;
-        }
+      // Accumulate data if we are inside the specific windows for Bit A or
+      // Bit B we read multiple time in the window to be more resilient and
+      // later we will take majority vote
+      if (currentMsInCurrentSecond >= 135 && currentMsInCurrentSecond <= 165) {
+        totalCountOfBitASamples++;
+        if (binaryState) countOfHighBitASamples++;
+      } else if (currentMsInCurrentSecond >= 235 && currentMsInCurrentSecond <= 265) {
+        totalCountOfBitBSamples++;
+        if (binaryState) countOfHighBitBSamples++;
       }
 
       // 2. PROCESS & STORE (End of Second)
       // Check if we crossed the 1000ms boundary. If so, calculate the final bit
       // for the second.
-      if (elapsedMs >= nextSecondBoundary) {
-        int percentageOfHighASamples =
-            (totalCountOfBitASamples > 0) ? (countOfHighBitASamples * 100) / totalCountOfBitASamples
-                                          : 0;
-        int percentageOfHighBitBSamples =
-            (totalCountOfBitBSamples > 0) ? (countOfHighBitBSamples * 100) / totalCountOfBitBSamples
-                                          : 0;
+      if (elapsedMs >= nextSecondMs) {
+        // majority vote: bit is 1 if more than half of samples are high
+        bool valA = (countOfHighBitASamples * 2 > totalCountOfBitASamples);
+        bool valB = (countOfHighBitBSamples * 2 > totalCountOfBitBSamples);
 
-        bool valA =
-            (percentageOfHighASamples > 60);  // if more than 60% of the samples in bit A window
-                                              // are high, we consider the bit to be 1, otherwise 0
-        bool valB = (percentageOfHighBitBSamples >
-                     60);  // if more than 60% of the samples in bit B window
-                           // are high, we consider the bit to be 1, otherwise 0
-        this->writeBit(this->packedABits, currentSecond,
-                       valA);  // if more than 60% of the samples in bit A window are high,
-                               // we consider the bit to be 1, otherwise 0
-        this->writeBit(this->packedBBits, currentSecond,
-                       valB);  // if more than 60% of the samples in bit B window are high,
-                               // we consider the bit to be 1, otherwise 0
+        this->writeBit(this->packedABits, currentSecond, valA);
+        this->writeBit(this->packedBBits, currentSecond, valB);
 
         MSF_TIME_LIB_LOG(F("[MSF] Sec "));
         if (currentSecond < 10) MSF_TIME_LIB_LOG(F("0"));
@@ -414,28 +404,42 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(F(" | A:"));
         MSF_TIME_LIB_LOG((valA) ? F("1") : F("0"));
         MSF_TIME_LIB_LOG(F(" ["));
-        MSF_TIME_LIB_LOG(percentageOfHighASamples);
-        MSF_TIME_LIB_LOG(F("%]"));
+        if (countOfHighBitASamples < 10) MSF_TIME_LIB_LOG(F(" "));
+        MSF_TIME_LIB_LOG(countOfHighBitASamples);
+        MSF_TIME_LIB_LOG(F("/"));
+        MSF_TIME_LIB_LOG(totalCountOfBitASamples);
+        MSF_TIME_LIB_LOG(F("]"));
         MSF_TIME_LIB_LOG(F(" | B:"));
         MSF_TIME_LIB_LOG((valB) ? F("1") : F("0"));
         MSF_TIME_LIB_LOG(F(" ["));
-        MSF_TIME_LIB_LOG(percentageOfHighBitBSamples);
-        MSF_TIME_LIB_LOG(F("%]"));
+        if (countOfHighBitBSamples < 10) MSF_TIME_LIB_LOG(F(" "));
+        MSF_TIME_LIB_LOG(countOfHighBitBSamples);
+        MSF_TIME_LIB_LOG(F("/"));
+        MSF_TIME_LIB_LOG(totalCountOfBitBSamples);
+        MSF_TIME_LIB_LOG(F("]"));
 
-        if (percentageOfHighASamples < 90 && percentageOfHighASamples > 10)
-          MSF_TIME_LIB_LOG(F(" <--- NOISY"));
+        // flag noisy samples: between 10% and 90% (cross-multiply to avoid division)
+        bool noisyA = (totalCountOfBitASamples > 0) &&
+                      (countOfHighBitASamples * 10 > totalCountOfBitASamples) &&
+                      (countOfHighBitASamples * 10 < totalCountOfBitASamples * 9);
+        bool noisyB = (totalCountOfBitBSamples > 0) &&
+                      (countOfHighBitBSamples * 10 > totalCountOfBitBSamples) &&
+                      (countOfHighBitBSamples * 10 < totalCountOfBitBSamples * 9);
+        if (noisyA) MSF_TIME_LIB_LOG(F(" <--- NOISY A"));
+        if (noisyB) MSF_TIME_LIB_LOG(F(" <--- NOISY B"));
         MSF_TIME_LIB_LOGLN();
 
         // Prepare for next second
         currentSecond++;
-        nextSecondBoundary += 1000;
+        nextSecondMs += 1000;
+
         countOfHighBitASamples = 0;
         totalCountOfBitASamples = 0;
         countOfHighBitBSamples = 0;
         totalCountOfBitBSamples = 0;
       }
     }
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
     // 3. DECODE
     MSFData result;
@@ -453,15 +457,16 @@ class MSFReceiver {
     result.day = this->decodeBCD(30, 6, wDay);
     result.hour = this->decodeBCD(39, 6, wHour);
     result.minute = this->decodeBCD(45, 7, wMin);
+    // MSF spec encodes day of week as 0-6 (0=Sunday), +1 to make it 1-based (1=Sunday, 7=Saturday)
     result.dayOfTheWeek = this->decodeBCD(36, 3, wDOW) + 1;
 
     // each piece of information has its own parity bit as in MSF spec
     bool pYear =
         this->checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedABits,
                                        // and its parity bit is located at bit 54 in packedBBits
-    bool pDate = this->checkParity(25, 11, 55);  // date (month, day, dow) is located from bit 25 to
-                                                 // bit 35 in packedABits, and its parity bit is
-                                                 // located at bit 55 in packedBBits
+    bool pDate = this->checkParity(25, 11, 55);  // date (month, day) is located from bit 25 to bit
+                                                 // 35 in packedABits, and its parity bit is located
+                                                 // at bit 55 in packedBBits
     bool pDOW =
         this->checkParity(36, 3,
                           56);  // day of week is located from bit 36 to bit 38 in packedABits,
