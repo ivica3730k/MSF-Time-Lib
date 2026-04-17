@@ -353,9 +353,9 @@ class MSFReceiver {
     }
     MSF_TIME_LIB_LOGLN(F("[MSF] Starting decode NOW."));
 
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
-    MSF_TIME_LIB_LOGLN(F("[MSF] SEC |   BIT A (135-165ms)   |   BIT B (235-265ms)"));
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] SEC    | A (135-165) | B (235-265)"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
     int countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
     int countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
@@ -404,6 +404,7 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(F(" | A:"));
         MSF_TIME_LIB_LOG((valA) ? F("1") : F("0"));
         MSF_TIME_LIB_LOG(F(" ["));
+        if (countOfHighBitASamples < 10) MSF_TIME_LIB_LOG(F(" "));
         MSF_TIME_LIB_LOG(countOfHighBitASamples);
         MSF_TIME_LIB_LOG(F("/"));
         MSF_TIME_LIB_LOG(totalCountOfBitASamples);
@@ -411,6 +412,7 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(F(" | B:"));
         MSF_TIME_LIB_LOG((valB) ? F("1") : F("0"));
         MSF_TIME_LIB_LOG(F(" ["));
+        if (countOfHighBitBSamples < 10) MSF_TIME_LIB_LOG(F(" "));
         MSF_TIME_LIB_LOG(countOfHighBitBSamples);
         MSF_TIME_LIB_LOG(F("/"));
         MSF_TIME_LIB_LOG(totalCountOfBitBSamples);
@@ -437,7 +439,7 @@ class MSFReceiver {
         totalCountOfBitBSamples = 0;
       }
     }
-    MSF_TIME_LIB_LOGLN(F("[MSF] ------------------------------------------------"));
+    MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
     // 3. DECODE
     MSFData result;
