@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 
 #if MSF_TIME_LIB_DEBUG
@@ -27,6 +29,7 @@ struct MSFData {
 /// carrier signal while looking for the minute marker.
 template <int SAMPLE_RATE_MS>
 class MSFReceiver {
+  static_assert(SAMPLE_RATE_MS > 0, "SAMPLE_RATE_MS must be a positive integer");
   using ReaderFunction = bool (*)();
 
  private:
@@ -423,7 +426,9 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(F("%]"));
 
         if (percentageOfHighASamples < 90 && percentageOfHighASamples > 10)
-          MSF_TIME_LIB_LOG(F(" <--- NOISY"));
+          MSF_TIME_LIB_LOG(F(" <--- NOISY A"));
+        if (percentageOfHighBitBSamples < 90 && percentageOfHighBitBSamples > 10)
+          MSF_TIME_LIB_LOG(F(" <--- NOISY B"));
         MSF_TIME_LIB_LOGLN();
 
         // Prepare for next second
@@ -453,6 +458,7 @@ class MSFReceiver {
     result.day = this->decodeBCD(30, 6, wDay);
     result.hour = this->decodeBCD(39, 6, wHour);
     result.minute = this->decodeBCD(45, 7, wMin);
+    // MSF spec encodes day of week as 0-6 (0=Sunday), +1 to make it 1-based (1=Sunday, 7=Saturday)
     result.dayOfTheWeek = this->decodeBCD(36, 3, wDOW) + 1;
 
     // each piece of information has its own parity bit as in MSF spec
