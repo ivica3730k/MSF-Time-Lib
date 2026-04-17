@@ -337,6 +337,7 @@ class MSFReceiver {
     // detect the second boundary by 700ms of carrier followed by 100ms of
     // silence in every second
     uint32_t nextSecondBoundary = 1000;
+    uint32_t currentSecondStart = 0;
 
     // Reset Member Variables
     memset(this->packedABits, 0, sizeof(this->packedABits));
@@ -371,7 +372,7 @@ class MSFReceiver {
         // count variables dont overflow
         delayMicroseconds(500);
 
-        int currentMsInCurrentSecond = elapsedMs % 1000;
+        int currentMsInCurrentSecond = elapsedMs - currentSecondStart;
         // MSF spec defines presence of carrier as binary 0 and absence of
         // carrier (silence) as binary 1 we invert the carrier state here to
         // make it more intuitive to work with, where 1 means presence of
@@ -433,6 +434,7 @@ class MSFReceiver {
 
         // Prepare for next second
         currentSecond++;
+        currentSecondStart = nextSecondBoundary;
         nextSecondBoundary += 1000;
         countOfHighBitASamples = 0;
         totalCountOfBitASamples = 0;
