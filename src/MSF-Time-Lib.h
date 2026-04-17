@@ -336,7 +336,6 @@ class MSFReceiver {
     // TODO: Instead of relying on calculating offsets from 0th second, we can
     // detect the second boundary by 700ms of carrier followed by 100ms of
     // silence in every second
-    uint32_t nextSecondBoundary = 1000;
     uint32_t currentSecondStart = 0;
 
     // Reset Member Variables
@@ -391,7 +390,7 @@ class MSFReceiver {
       // 2. PROCESS & STORE (End of Second)
       // Check if we crossed the 1000ms boundary. If so, calculate the final bit
       // for the second.
-      if (elapsedMs >= nextSecondBoundary) {
+      if (elapsedMs >= currentSecondStart + 1000) {
         // majority vote: bit is 1 if more than half of samples are high
         bool valA = (countOfHighBitASamples * 2 > totalCountOfBitASamples);
         bool valB = (countOfHighBitBSamples * 2 > totalCountOfBitBSamples);
@@ -430,8 +429,7 @@ class MSFReceiver {
 
         // Prepare for next second
         currentSecond++;
-        currentSecondStart = nextSecondBoundary;
-        nextSecondBoundary += 1000;
+        currentSecondStart += 1000;
         countOfHighBitASamples = 0;
         totalCountOfBitASamples = 0;
         countOfHighBitBSamples = 0;
