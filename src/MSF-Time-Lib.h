@@ -18,7 +18,7 @@ struct MSFData {
   uint8_t hour;
   uint8_t minute;
   uint8_t second = 0;  // MSF signal does not transmit seconds, we know its 0 because of how
-                             // we are syncing to the minute marker transition
+                       // we are syncing to the minute marker transition
   uint8_t dayOfTheWeek;
   bool checksumPassed;
 };
@@ -171,7 +171,7 @@ class MSFReceiver {
     if (this->rollingBufferHead >= MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_NUM_ELEMENTS)
       this->rollingBufferHead = 0;
 
-    // return both scores togather, where a top score is good carrier window and
+    // return both scores together, where a top score is good carrier window and
     // good silence window
     return this->rollingBufferCarrierWindowScore + this->rollingBufferSilenceWindowScore;
   }
@@ -241,7 +241,7 @@ class MSFReceiver {
     // B bits of MFS signal.
 
     // to avoid always syncing on the same spot if we are very close to the
-    // minute marker, in case we miss it first time we ∏dont want to keep
+    // minute marker, in case we miss it first time we don't want to keep
     // missing it
     this->sleepForRandomTime();
 
@@ -365,30 +365,27 @@ class MSFReceiver {
     while (currentSecond < 60) {
       uint32_t elapsedMs = millis() - minuteStart;
 
-      {
-        // delay to max of cca 2kHz sampling, minus some processing overhead,
-        // just in case read makes an RF spike in hardware and to make sure our
-        // count variables dont overflow
-        delayMicroseconds(500);
+      // delay to max of cca 2kHz sampling, minus some processing overhead,
+      // just in case read makes an RF spike in hardware
+      delayMicroseconds(500);
 
-        int currentMsInCurrentSecond = elapsedMs - currentSecondStart;
-        // MSF spec defines presence of carrier as binary 0 and absence of
-        // carrier (silence) as binary 1 we invert the carrier state here to
-        // make it more intuitive to work with, where 1 means presence of
-        // carrier and 0 means silence
-        bool carrierState = this->carrierStateReader();
-        bool binaryState = !carrierState;
+      int currentMsInCurrentSecond = elapsedMs - currentSecondStart;
+      // MSF spec defines presence of carrier as binary 0 and absence of
+      // carrier (silence) as binary 1 we invert the carrier state here to
+      // make it more intuitive to work with, where 1 means presence of
+      // carrier and 0 means silence
+      bool carrierState = this->carrierStateReader();
+      bool binaryState = !carrierState;
 
-        // Accumulate data if we are inside the specific windows for Bit A or
-        // Bit B we read multiple time in the window to be more resilient and
-        // later we will take vote based on percentage of samples
-        if (currentMsInCurrentSecond >= 135 && currentMsInCurrentSecond <= 165) {
-          totalCountOfBitASamples++;
-          if (binaryState) countOfHighBitASamples++;
-        } else if (currentMsInCurrentSecond >= 235 && currentMsInCurrentSecond <= 265) {
-          totalCountOfBitBSamples++;
-          if (binaryState) countOfHighBitBSamples++;
-        }
+      // Accumulate data if we are inside the specific windows for Bit A or
+      // Bit B we read multiple time in the window to be more resilient and
+      // later we will take majority vote
+      if (currentMsInCurrentSecond >= 135 && currentMsInCurrentSecond <= 165) {
+        totalCountOfBitASamples++;
+        if (binaryState) countOfHighBitASamples++;
+      } else if (currentMsInCurrentSecond >= 235 && currentMsInCurrentSecond <= 265) {
+        totalCountOfBitBSamples++;
+        if (binaryState) countOfHighBitBSamples++;
       }
 
       // 2. PROCESS & STORE (End of Second)
