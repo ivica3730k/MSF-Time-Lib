@@ -314,9 +314,9 @@ class MSFReceiver {
     // NEXT cycle. this is needed as we are listening for more than 60s in
     // syncToMinuteMarker function so if we get result very early we cant just
     // wait for hardcoded 60s, we might need more
-    uint32_t waitInMiliseconds = 60000 - (elapsedSinceMarker % 60000);
+    uint32_t waitInMilliseconds = 60000 - (elapsedSinceMarker % 60000);
 
-    uint32_t nextMinuteMillis = millis() + waitInMiliseconds;
+    uint32_t nextMinuteMillis = millis() + waitInMilliseconds;
 
     return nextMinuteMillis;
   }
@@ -365,7 +365,6 @@ class MSFReceiver {
     while (currentSecond < 60) {
       uint32_t elapsedMs = millis() - minuteStart;
 
-      if (true)  // read as often as possible by hardware
       {
         // delay to max of cca 2kHz sampling, minus some processing overhead,
         // just in case read makes an RF spike in hardware and to make sure our
