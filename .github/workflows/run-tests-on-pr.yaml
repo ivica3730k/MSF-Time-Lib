@@ -1,9 +1,10 @@
-name: Run host tests on PR to main
+name: Run host tests on PR to main or development
 
 on:
   pull_request:
     branches:
       - main
+      - development
 
 jobs:
   run-tests:
