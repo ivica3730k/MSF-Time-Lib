@@ -1,9 +1,9 @@
-name: Re-run pre-commit hooks on PR to main
+name: Re-run pre-commit hooks on PR to development
 
 on:
   pull_request:
     branches:
-      - main
+      - development
 
 jobs:
   rerun-pre-commit-checks:
