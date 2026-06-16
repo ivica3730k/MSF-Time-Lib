@@ -339,7 +339,8 @@ TEST_CASE(isNoisyBit_boundaries_are_exclusive_at_10_and_90_pct) {
   ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(10, 100));
   // Just inside (11/100): high*10 = 110 > 100 AND 110 < 900 -> noisy
   ASSERT_TRUE(MSFReceiver<10>::isNoisyBit(11, 100));
-  // At exactly 90% (90/100): high*10 == total*9 -> condition `high*10 < total*9` is false -> NOT noisy
+  // At exactly 90% (90/100): high*10 == total*9 -> condition `high*10 < total*9` is false -> NOT
+  // noisy
   ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(90, 100));
   // Just inside (89/100): high*10 = 890 > 100 AND 890 < 900 -> noisy
   ASSERT_TRUE(MSFReceiver<10>::isNoisyBit(89, 100));
