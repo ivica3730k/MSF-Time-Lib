@@ -11,7 +11,7 @@
 #endif
 
 struct MSFData {
-  uint32_t year = 2000;  // MSF time spec gives year in 00 to 99 range, whoever maintains this in
+  uint16_t year = 2000;  // MSF time spec gives year in 00 to 99 range, whoever maintains this in
                          // 2100 can change it :P
   uint8_t month;
   uint8_t day;
@@ -71,9 +71,9 @@ class MSFReceiver {
   uint8_t buffer[MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_BYTES];
 
   // State variables for syncing to the minute marker.
-  int rollingBufferHead;
-  int rollingBufferCarrierWindowScore;
-  int rollingBufferSilenceWindowScore;
+  uint16_t rollingBufferHead;
+  uint16_t rollingBufferCarrierWindowScore;
+  uint16_t rollingBufferSilenceWindowScore;
 
   // reader function provided by the user code to read the current state of the
   // carrier (true for carrier, false for silence)
@@ -191,7 +191,7 @@ class MSFReceiver {
   /// @param weights Array of weights where each idx corresponds to value that
   /// bit contributes
   /// @return Decoded integer value
-  int decodeBCD(int startIdx, int count, const int* weights) {
+  int decodeBCD(int startIdx, int count, const int8_t* weights) {
     int val = 0;
     for (int i = 0; i < count; i++) {
       if (startIdx + i >= 60) break;
@@ -212,6 +212,80 @@ class MSFReceiver {
     }
     if (this->readBit(this->packedBBits, parityBitIdx)) ones++;
     return (ones % 2 != 0);
+  }
+
+  /// @brief Which sampling window (if any) a given millisecond-within-the-second falls in.
+  /// MSF encodes bit A in the 100-200ms slot and bit B in the 200-300ms slot. We sample
+  /// near the centre of each slot (135-165 / 235-265) to avoid edge transitions.
+  enum class SampleWindow : uint8_t { None, A, B };
+  static SampleWindow classifyMs(uint32_t msInSecond) {
+    if (msInSecond >= 135 && msInSecond <= 165) return SampleWindow::A;
+    if (msInSecond >= 235 && msInSecond <= 265) return SampleWindow::B;
+    return SampleWindow::None;
+  }
+
+  /// @brief Returns true if a bit's sample distribution is in the murky 10%-90% range.
+  /// Cross-multiplied to avoid division. Total==0 short-circuits to false (no samples
+  /// taken means the window never opened, not that the bit is noisy).
+  static bool isNoisyBit(uint8_t high, uint8_t total) {
+    return total > 0 && high * 10 > total && high * 10 < total * 9;
+  }
+
+  /// @brief Milliseconds to wait from now until the next minute boundary, given how much
+  /// time has elapsed since the detected minute marker. The modulo handles the case where
+  /// the sync scan ran longer than 60s. Never returns 0: when elapsedSinceMarker is an
+  /// exact multiple of 60000 we return 60000 (full minute wait) rather than skipping the
+  /// boundary entirely.
+  static uint32_t waitDurationToNextMinute(uint32_t elapsedSinceMarker) {
+    return 60000 - (elapsedSinceMarker % 60000);
+  }
+
+  /// @brief Decodes the contents of packedABits / packedBBits into an MSFData
+  /// struct using the bit-position and weight tables defined by the MSF
+  /// specification, and sets checksumPassed based on per-field parity plus a
+  /// sanity range check.
+  /// @return Populated MSFData. checksumPassed is true only if all four parity
+  /// checks pass AND month/day/hour/minute are within valid ranges.
+  MSFData decodeFrame() {
+    MSFData result;
+
+    static const int8_t wYear[] = {80, 40, 20, 10, 8, 4, 2, 1};
+    static const int8_t wMonth[] = {10, 8, 4, 2, 1};
+    static const int8_t wDay[] = {20, 10, 8, 4, 2, 1};
+    static const int8_t wDOW[] = {4, 2, 1};
+    static const int8_t wHour[] = {20, 10, 8, 4, 2, 1};
+    static const int8_t wMin[] = {40, 20, 10, 8, 4, 2, 1};
+
+    result.year += this->decodeBCD(17, 8, wYear);
+    result.month = this->decodeBCD(25, 5, wMonth);
+    result.day = this->decodeBCD(30, 6, wDay);
+    result.hour = this->decodeBCD(39, 6, wHour);
+    result.minute = this->decodeBCD(45, 7, wMin);
+    // MSF spec encodes day of week as 0-6 (0=Sunday), +1 to make it 1-based (1=Sunday, 7=Saturday)
+    result.dayOfTheWeek = this->decodeBCD(36, 3, wDOW) + 1;
+
+    // each piece of information has its own parity bit as in MSF spec
+    bool pYear =
+        this->checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedABits,
+                                       // and its parity bit is located at bit 54 in packedBBits
+    bool pDate = this->checkParity(25, 11, 55);  // date (month, day) is located from bit 25 to bit
+                                                 // 35 in packedABits, and its parity bit is located
+                                                 // at bit 55 in packedBBits
+    bool pDOW =
+        this->checkParity(36, 3,
+                          56);  // day of week is located from bit 36 to bit 38 in packedABits,
+                                // and its parity bit is located at bit 56 in packedBBits
+    bool pTime = this->checkParity(39, 13, 57);  // time (hour, minute) is located from bit 39 to
+                                                 // bit 51 in packedABits, and its parity bit is
+                                                 // located at bit 57 in packedBBits
+
+    bool sane = (result.month >= 1 && result.month <= 12) &&
+                (result.day >= 1 && result.day <= 31) && (result.hour <= 23) &&
+                (result.minute <= 59);
+
+    result.checksumPassed = pYear && pDate && pDOW && pTime && sane;
+
+    return result;
   }
 
   /// @brief Helper function that sleeps for a random time between 1 and 5
@@ -254,8 +328,8 @@ class MSFReceiver {
     uint32_t startScan = millis();
     uint32_t lastSample = 0;
     uint32_t lastPrint = 0;
-    int maxScoreSeen = 0;
-    int lastCalculatedScore = 0;
+    uint16_t maxScoreSeen = 0;
+    uint16_t lastCalculatedScore = 0;
     uint32_t timeOfMaxScore = 0;
 
     while (millis() - startScan < 65000) {
@@ -265,11 +339,10 @@ class MSFReceiver {
         // MSF spec defines presence of carrier as binary 0 and absence of
         // carrier (silence) as binary 1 but we dont invert here because we are
         // only interested in carrier presence or absence
-        int currentScore = this->updateRollingBuffer(this->carrierStateReader());
-        lastCalculatedScore = currentScore;
+        lastCalculatedScore = this->updateRollingBuffer(this->carrierStateReader());
 
-        if (currentScore > maxScoreSeen) {
-          maxScoreSeen = currentScore;
+        if (lastCalculatedScore > maxScoreSeen) {
+          maxScoreSeen = lastCalculatedScore;
           timeOfMaxScore = now;
         }
       }
@@ -286,6 +359,7 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(maxScoreSeen);
         MSF_TIME_LIB_LOG(F("         "));
       }
+      (void)lastCalculatedScore;  // silence unused warning when debug is off
     }
 
     MSF_TIME_LIB_LOGLN();
@@ -306,19 +380,9 @@ class MSFReceiver {
   uint32_t get_next_bit_retrieval_timestamp() {
     uint32_t prevMinuteMillis = this->syncToMinuteMarker();
 
-    // calculate how long we need to wait
     uint32_t elapsedSinceMarker = millis() - prevMinuteMillis;
-
-    // The remainder tells us how far we are into the CURRENT 60s cycle.
-    // Subtracting that from 60000 gives us the exact time remaining until the
-    // NEXT cycle. this is needed as we are listening for more than 60s in
-    // syncToMinuteMarker function so if we get result very early we cant just
-    // wait for hardcoded 60s, we might need more
-    uint32_t waitInMilliseconds = 60000 - (elapsedSinceMarker % 60000);
-
-    uint32_t nextMinuteMillis = millis() + waitInMilliseconds;
-
-    return nextMinuteMillis;
+    uint32_t waitInMilliseconds = waitDurationToNextMinute(elapsedSinceMarker);
+    return millis() + waitInMilliseconds;
   }
 
  public:
@@ -357,9 +421,9 @@ class MSFReceiver {
     MSF_TIME_LIB_LOGLN(F("[MSF] SEC    | A (135-165) | B (235-265)"));
     MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
-    int countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
-    int countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
-    uint32_t currentSecond = 0;
+    uint8_t countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
+    uint8_t countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
+    uint8_t currentSecond = 0;
     uint32_t nextSecondMs = 1000;
     while (currentSecond < 60) {
       uint32_t elapsedMs = millis() - minuteStart;
@@ -379,10 +443,11 @@ class MSFReceiver {
       // Accumulate data if we are inside the specific windows for Bit A or
       // Bit B we read multiple time in the window to be more resilient and
       // later we will take majority vote
-      if (currentMsInCurrentSecond >= 135 && currentMsInCurrentSecond <= 165) {
+      SampleWindow window = classifyMs(currentMsInCurrentSecond);
+      if (window == SampleWindow::A) {
         totalCountOfBitASamples++;
         if (binaryState) countOfHighBitASamples++;
-      } else if (currentMsInCurrentSecond >= 235 && currentMsInCurrentSecond <= 265) {
+      } else if (window == SampleWindow::B) {
         totalCountOfBitBSamples++;
         if (binaryState) countOfHighBitBSamples++;
       }
@@ -418,13 +483,8 @@ class MSFReceiver {
         MSF_TIME_LIB_LOG(totalCountOfBitBSamples);
         MSF_TIME_LIB_LOG(F("]"));
 
-        // flag noisy samples: between 10% and 90% (cross-multiply to avoid division)
-        bool noisyA = (totalCountOfBitASamples > 0) &&
-                      (countOfHighBitASamples * 10 > totalCountOfBitASamples) &&
-                      (countOfHighBitASamples * 10 < totalCountOfBitASamples * 9);
-        bool noisyB = (totalCountOfBitBSamples > 0) &&
-                      (countOfHighBitBSamples * 10 > totalCountOfBitBSamples) &&
-                      (countOfHighBitBSamples * 10 < totalCountOfBitBSamples * 9);
+        bool noisyA = isNoisyBit(countOfHighBitASamples, totalCountOfBitASamples);
+        bool noisyB = isNoisyBit(countOfHighBitBSamples, totalCountOfBitBSamples);
         if (noisyA) MSF_TIME_LIB_LOG(F(" <--- NOISY A"));
         if (noisyB) MSF_TIME_LIB_LOG(F(" <--- NOISY B"));
         MSF_TIME_LIB_LOGLN();
@@ -441,47 +501,7 @@ class MSFReceiver {
     }
     MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
-    // 3. DECODE
-    MSFData result;
-
-    static const int wYear[] = {80, 40, 20, 10, 8, 4, 2, 1};
-    static const int wMonth[] = {10, 8, 4, 2, 1};
-    static const int wDay[] = {20, 10, 8, 4, 2, 1};
-    static const int wDOW[] = {4, 2, 1};
-    static const int wHour[] = {20, 10, 8, 4, 2, 1};
-    static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
-
-    int rawYear = this->decodeBCD(17, 8, wYear);
-    result.year += rawYear;
-    result.month = this->decodeBCD(25, 5, wMonth);
-    result.day = this->decodeBCD(30, 6, wDay);
-    result.hour = this->decodeBCD(39, 6, wHour);
-    result.minute = this->decodeBCD(45, 7, wMin);
-    // MSF spec encodes day of week as 0-6 (0=Sunday), +1 to make it 1-based (1=Sunday, 7=Saturday)
-    result.dayOfTheWeek = this->decodeBCD(36, 3, wDOW) + 1;
-
-    // each piece of information has its own parity bit as in MSF spec
-    bool pYear =
-        this->checkParity(17, 8, 54);  // year is located from bit 17 to bit 24 in packedABits,
-                                       // and its parity bit is located at bit 54 in packedBBits
-    bool pDate = this->checkParity(25, 11, 55);  // date (month, day) is located from bit 25 to bit
-                                                 // 35 in packedABits, and its parity bit is located
-                                                 // at bit 55 in packedBBits
-    bool pDOW =
-        this->checkParity(36, 3,
-                          56);  // day of week is located from bit 36 to bit 38 in packedABits,
-                                // and its parity bit is located at bit 56 in packedBBits
-    bool pTime = this->checkParity(39, 13, 57);  // time (hour, minute) is located from bit 39 to
-                                                 // bit 51 in packedABits, and its parity bit is
-                                                 // located at bit 57 in packedBBits
-
-    bool sane = (result.month >= 1 && result.month <= 12) &&
-                (result.day >= 1 && result.day <= 31) && (result.hour <= 23) &&
-                (result.minute <= 59);
-
-    result.checksumPassed = pYear && pDate && pDOW && pTime && sane;
-
-    return result;
+    return this->decodeFrame();
   }
 
   /// @brief Reads the MSF signal and outputs the decoded time and checksum

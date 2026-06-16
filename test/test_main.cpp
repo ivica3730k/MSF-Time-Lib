@@ -146,7 +146,7 @@ TEST_CASE(decodeBCD_decodes_year_value) {
   // 24 = weights[2] (20) + weights[5] (4)
   r.writeBit(r.packedABits, 19, true);
   r.writeBit(r.packedABits, 22, true);
-  static const int wYear[] = {80, 40, 20, 10, 8, 4, 2, 1};
+  static const int8_t wYear[] = {80, 40, 20, 10, 8, 4, 2, 1};
   ASSERT_EQ(24, r.decodeBCD(17, 8, wYear));
 }
 
@@ -158,7 +158,7 @@ TEST_CASE(decodeBCD_decodes_minute_value) {
   r.writeBit(r.packedABits, 47, true);
   r.writeBit(r.packedABits, 48, true);
   r.writeBit(r.packedABits, 51, true);
-  static const int wMin[] = {40, 20, 10, 8, 4, 2, 1};
+  static const int8_t wMin[] = {40, 20, 10, 8, 4, 2, 1};
   ASSERT_EQ(59, r.decodeBCD(45, 7, wMin));
 }
 
@@ -169,14 +169,14 @@ TEST_CASE(decodeBCD_decodes_max_hour) {
   r.writeBit(r.packedABits, 39, true);
   r.writeBit(r.packedABits, 43, true);
   r.writeBit(r.packedABits, 44, true);
-  static const int wHour[] = {20, 10, 8, 4, 2, 1};
+  static const int8_t wHour[] = {20, 10, 8, 4, 2, 1};
   ASSERT_EQ(23, r.decodeBCD(39, 6, wHour));
 }
 
 TEST_CASE(decodeBCD_returns_zero_when_no_bits_set) {
   MSFReceiver<10> r(stub_reader);
   std::memset(r.packedABits, 0, sizeof(r.packedABits));
-  static const int wHour[] = {20, 10, 8, 4, 2, 1};
+  static const int8_t wHour[] = {20, 10, 8, 4, 2, 1};
   ASSERT_EQ(0, r.decodeBCD(39, 6, wHour));
 }
 
@@ -279,6 +279,215 @@ TEST_CASE(updateRollingBuffer_score_drops_after_marker_passes) {
   // score should drop below the peak.
   int after = r.updateRollingBuffer(true);
   ASSERT(after < 120);
+}
+
+// =============================================================================
+// Unit tests — sampling window classification
+// =============================================================================
+
+TEST_CASE(classifyMs_returns_None_outside_windows) {
+  using Window = MSFReceiver<10>::SampleWindow;
+  ASSERT(MSFReceiver<10>::classifyMs(0) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(100) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(134) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(166) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(234) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(266) == Window::None);
+  ASSERT(MSFReceiver<10>::classifyMs(999) == Window::None);
+}
+
+TEST_CASE(classifyMs_returns_A_inside_A_window) {
+  using Window = MSFReceiver<10>::SampleWindow;
+  ASSERT(MSFReceiver<10>::classifyMs(135) == Window::A);  // inclusive lower bound
+  ASSERT(MSFReceiver<10>::classifyMs(150) == Window::A);
+  ASSERT(MSFReceiver<10>::classifyMs(165) == Window::A);  // inclusive upper bound
+}
+
+TEST_CASE(classifyMs_returns_B_inside_B_window) {
+  using Window = MSFReceiver<10>::SampleWindow;
+  ASSERT(MSFReceiver<10>::classifyMs(235) == Window::B);  // inclusive lower bound
+  ASSERT(MSFReceiver<10>::classifyMs(250) == Window::B);
+  ASSERT(MSFReceiver<10>::classifyMs(265) == Window::B);  // inclusive upper bound
+}
+
+// =============================================================================
+// Unit tests — noisy bit detection
+// =============================================================================
+
+TEST_CASE(isNoisyBit_returns_false_when_total_zero) {
+  // Window never opened — zero samples must NOT register as noisy.
+  ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(0, 0));
+}
+
+TEST_CASE(isNoisyBit_returns_false_for_clean_high) {
+  // 95/100 = 95%, well above the 90% clean threshold.
+  ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(95, 100));
+}
+
+TEST_CASE(isNoisyBit_returns_false_for_clean_low) {
+  // 5/100 = 5%, well below the 10% clean threshold.
+  ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(5, 100));
+}
+
+TEST_CASE(isNoisyBit_returns_true_for_marginal_distribution) {
+  // 50/100 = 50%, smack in the middle of the noisy band.
+  ASSERT_TRUE(MSFReceiver<10>::isNoisyBit(50, 100));
+}
+
+TEST_CASE(isNoisyBit_boundaries_are_exclusive_at_10_and_90_pct) {
+  // At exactly 10% (10/100): high*10 == total -> condition `high*10 > total` is false -> NOT noisy
+  ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(10, 100));
+  // Just inside (11/100): high*10 = 110 > 100 AND 110 < 900 -> noisy
+  ASSERT_TRUE(MSFReceiver<10>::isNoisyBit(11, 100));
+  // At exactly 90% (90/100): high*10 == total*9 -> condition `high*10 < total*9` is false -> NOT noisy
+  ASSERT_FALSE(MSFReceiver<10>::isNoisyBit(90, 100));
+  // Just inside (89/100): high*10 = 890 > 100 AND 890 < 900 -> noisy
+  ASSERT_TRUE(MSFReceiver<10>::isNoisyBit(89, 100));
+}
+
+// =============================================================================
+// Unit tests — wait-to-next-minute math
+// =============================================================================
+
+TEST_CASE(waitDurationToNextMinute_returns_60000_at_zero) {
+  // Zero elapsed -> a full minute to wait, never 0.
+  ASSERT_EQ(60000u, MSFReceiver<10>::waitDurationToNextMinute(0));
+}
+
+TEST_CASE(waitDurationToNextMinute_returns_60000_at_exact_multiple) {
+  // Same property at every minute boundary - we never return 0 and skip the boundary.
+  ASSERT_EQ(60000u, MSFReceiver<10>::waitDurationToNextMinute(60000));
+  ASSERT_EQ(60000u, MSFReceiver<10>::waitDurationToNextMinute(120000));
+  ASSERT_EQ(60000u, MSFReceiver<10>::waitDurationToNextMinute(600000));
+}
+
+TEST_CASE(waitDurationToNextMinute_returns_remaining_within_first_minute) {
+  ASSERT_EQ(59999u, MSFReceiver<10>::waitDurationToNextMinute(1));
+  ASSERT_EQ(50000u, MSFReceiver<10>::waitDurationToNextMinute(10000));
+  ASSERT_EQ(1u, MSFReceiver<10>::waitDurationToNextMinute(59999));
+}
+
+TEST_CASE(waitDurationToNextMinute_handles_sync_longer_than_60s) {
+  // The sync scan runs for 65s, so elapsedSinceMarker can exceed 60000.
+  // 65000 % 60000 = 5000 -> 55000 remaining until next boundary.
+  ASSERT_EQ(55000u, MSFReceiver<10>::waitDurationToNextMinute(65000));
+  // Two-and-a-bit minutes in: 130000 % 60000 = 10000 -> 50000 remaining.
+  ASSERT_EQ(50000u, MSFReceiver<10>::waitDurationToNextMinute(130000));
+}
+
+// =============================================================================
+// Unit tests — frame decoding (decodeFrame against pre-populated packed bits)
+// =============================================================================
+
+namespace {
+
+// Writes the reference 2024-12-31 23:59 Tuesday frame directly into a
+// receiver's packedABits/packedBBits, bypassing the timing/sampling pipeline.
+// Mirrors the bit positions used by encode_reference_signal().
+void populate_reference_frame(MSFReceiver<10>& r) {
+  std::memset(r.packedABits, 0, sizeof(r.packedABits));
+  std::memset(r.packedBBits, 0, sizeof(r.packedBBits));
+  // Year 24 = 20 + 4
+  r.writeBit(r.packedABits, 19, true);
+  r.writeBit(r.packedABits, 22, true);
+  // Month 12 = 10 + 2
+  r.writeBit(r.packedABits, 25, true);
+  r.writeBit(r.packedABits, 28, true);
+  // Day 31 = 20 + 8 + 2 + 1
+  r.writeBit(r.packedABits, 30, true);
+  r.writeBit(r.packedABits, 32, true);
+  r.writeBit(r.packedABits, 34, true);
+  r.writeBit(r.packedABits, 35, true);
+  // DOW raw 2 (Tuesday)
+  r.writeBit(r.packedABits, 37, true);
+  // Hour 23 = 20 + 2 + 1
+  r.writeBit(r.packedABits, 39, true);
+  r.writeBit(r.packedABits, 43, true);
+  r.writeBit(r.packedABits, 44, true);
+  // Minute 59 = 40 + 10 + 8 + 1
+  r.writeBit(r.packedABits, 45, true);
+  r.writeBit(r.packedABits, 47, true);
+  r.writeBit(r.packedABits, 48, true);
+  r.writeBit(r.packedABits, 51, true);
+  // Parity bits (odd parity = A_ones + B_parity_bit is odd)
+  r.writeBit(r.packedBBits, 54, true);   // Year: 2 ones -> parity 1
+  r.writeBit(r.packedBBits, 55, true);   // Date: 6 ones -> parity 1
+  r.writeBit(r.packedBBits, 56, false);  // DOW: 1 one -> parity 0
+  r.writeBit(r.packedBBits, 57, false);  // Time: 7 ones -> parity 0
+}
+
+}  // namespace
+
+TEST_CASE(decodeFrame_decodes_all_fields_for_valid_reference) {
+  MSFReceiver<10> r(stub_reader);
+  populate_reference_frame(r);
+
+  MSFData data = r.decodeFrame();
+
+  ASSERT_EQ(2024, (int)data.year);
+  ASSERT_EQ(12, data.month);
+  ASSERT_EQ(31, data.day);
+  ASSERT_EQ(23, data.hour);
+  ASSERT_EQ(59, data.minute);
+  ASSERT_EQ(0, data.second);
+  ASSERT_EQ(3, data.dayOfTheWeek);  // raw 2 + 1
+  ASSERT_TRUE(data.checksumPassed);
+}
+
+TEST_CASE(decodeFrame_year_offset_is_added_to_2000) {
+  // Empty frame: year-data bits all zero, year parity bit zero (1 one total
+  // would be odd, but zero ones is even -> parity fails). We're only checking
+  // that the year field decodes as 2000 (the struct default) when no bits
+  // are set, regardless of the checksum result.
+  MSFReceiver<10> r(stub_reader);
+  std::memset(r.packedABits, 0, sizeof(r.packedABits));
+  std::memset(r.packedBBits, 0, sizeof(r.packedBBits));
+
+  MSFData data = r.decodeFrame();
+
+  ASSERT_EQ(2000, (int)data.year);
+}
+
+TEST_CASE(decodeFrame_fails_checksum_when_year_parity_corrupted) {
+  MSFReceiver<10> r(stub_reader);
+  populate_reference_frame(r);
+  // Flip year parity bit: 2 data ones + parity 0 = even -> fails odd-parity
+  r.writeBit(r.packedBBits, 54, false);
+
+  MSFData data = r.decodeFrame();
+
+  // Field values still decode correctly; only the checksum flag should flip.
+  ASSERT_EQ(2024, (int)data.year);
+  ASSERT_FALSE(data.checksumPassed);
+}
+
+TEST_CASE(decodeFrame_fails_checksum_when_month_out_of_range) {
+  MSFReceiver<10> r(stub_reader);
+  populate_reference_frame(r);
+  // Overwrite month from 12 to 13 (10 + 2 + 1) — out of valid 1..12 range.
+  // We also need to repair the date parity so we know the failure comes from
+  // the sanity check, not from a parity mismatch:
+  //   Original date ones: month{25,28} + day{30,32,34,35} = 6 ones, parity 1
+  //   New date ones:      month{25,28,29} + day{30,32,34,35} = 7 ones
+  //   For odd-parity, 7 ones + parity bit must be odd -> parity must be 0.
+  r.writeBit(r.packedABits, 29, true);
+  r.writeBit(r.packedBBits, 55, false);
+
+  MSFData data = r.decodeFrame();
+
+  ASSERT_EQ(13, data.month);
+  ASSERT_FALSE(data.checksumPassed);
+}
+
+TEST_CASE(decodeFrame_day_of_week_offsets_by_one) {
+  // MSF raw value 0 (Sunday) should surface as dayOfTheWeek == 1.
+  MSFReceiver<10> r(stub_reader);
+  std::memset(r.packedABits, 0, sizeof(r.packedABits));
+  std::memset(r.packedBBits, 0, sizeof(r.packedBBits));
+
+  MSFData data = r.decodeFrame();
+
+  ASSERT_EQ(1, data.dayOfTheWeek);
 }
 
 // =============================================================================
