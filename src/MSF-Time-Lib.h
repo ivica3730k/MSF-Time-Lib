@@ -71,7 +71,11 @@ class MSFReceiver {
   uint8_t buffer[MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_BYTES];
 
   // State variables for syncing to the minute marker.
-  uint16_t rollingBufferHead;
+  // rollingBufferHead stays signed (int16_t) because updateRollingBuffer() subtracts
+  // from it and uses a `< 0` check to detect wrap. On AVR where `int` is 16-bit,
+  // a uint16_t head would force unsigned subtraction with implementation-defined
+  // conversion back to int. int16_t costs the same memory on ARM and avoids that.
+  int16_t rollingBufferHead;
   uint16_t rollingBufferCarrierWindowScore;
   uint16_t rollingBufferSilenceWindowScore;
 

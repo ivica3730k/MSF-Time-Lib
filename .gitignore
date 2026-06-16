@@ -34,3 +34,5 @@
 # Host test binary
 test/run_tests
 test/run_tests.dSYM/
+
+.claude/
