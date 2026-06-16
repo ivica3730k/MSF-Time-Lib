@@ -11,7 +11,7 @@
 #endif
 
 struct MSFData {
-  uint16_t year = 2000;  // MSF time spec gives year in 00 to 99 range, whoever maintains this in
+  uint32_t year = 2000;  // MSF time spec gives year in 00 to 99 range, whoever maintains this in
                          // 2100 can change it :P
   uint8_t month;
   uint8_t day;
@@ -71,10 +71,6 @@ class MSFReceiver {
   uint8_t buffer[MINUTE_MARKER_LOOKUP_BUFFER_SIZE_IN_BYTES];
 
   // State variables for syncing to the minute marker.
-  // rollingBufferHead stays signed (int16_t) because updateRollingBuffer() subtracts
-  // from it and uses a `< 0` check to detect wrap. On AVR where `int` is 16-bit,
-  // a uint16_t head would force unsigned subtraction with implementation-defined
-  // conversion back to int. int16_t costs the same memory on ARM and avoids that.
   int16_t rollingBufferHead;
   uint16_t rollingBufferCarrierWindowScore;
   uint16_t rollingBufferSilenceWindowScore;
@@ -383,10 +379,10 @@ class MSFReceiver {
   /// which is when we should start reading the bits of MSF signal
   uint32_t get_next_bit_retrieval_timestamp() {
     uint32_t prevMinuteMillis = this->syncToMinuteMarker();
-
-    uint32_t elapsedSinceMarker = millis() - prevMinuteMillis;
+    uint32_t now = millis();
+    uint32_t elapsedSinceMarker = now - prevMinuteMillis;
     uint32_t waitInMilliseconds = waitDurationToNextMinute(elapsedSinceMarker);
-    return millis() + waitInMilliseconds;
+    return now + waitInMilliseconds;
   }
 
  public:
@@ -425,8 +421,8 @@ class MSFReceiver {
     MSF_TIME_LIB_LOGLN(F("[MSF] SEC    | A (135-165) | B (235-265)"));
     MSF_TIME_LIB_LOGLN(F("[MSF] ----------------------------------"));
 
-    uint8_t countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
-    uint8_t countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
+    uint16_t countOfHighBitASamples = 0, totalCountOfBitASamples = 0;
+    uint16_t countOfHighBitBSamples = 0, totalCountOfBitBSamples = 0;
     uint8_t currentSecond = 0;
     uint32_t nextSecondMs = 1000;
     while (currentSecond < 60) {
