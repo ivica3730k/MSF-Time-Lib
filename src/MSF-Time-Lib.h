@@ -227,8 +227,10 @@ class MSFReceiver {
   /// @brief Returns true if a bit's sample distribution is in the murky 10%-90% range.
   /// Cross-multiplied to avoid division. Total==0 short-circuits to false (no samples
   /// taken means the window never opened, not that the bit is noisy).
-  static bool isNoisyBit(uint8_t high, uint8_t total) {
-    return total > 0 && high * 10 > total && high * 10 < total * 9;
+  static bool isNoisyBit(uint16_t high, uint16_t total) {
+    uint32_t highTimesTen = static_cast<uint32_t>(high) * 10u;
+    uint32_t totalAsU32 = static_cast<uint32_t>(total);
+    return total > 0 && highTimesTen > totalAsU32 && highTimesTen < totalAsU32 * 9u;
   }
 
   /// @brief Milliseconds to wait from now until the next minute boundary, given how much
