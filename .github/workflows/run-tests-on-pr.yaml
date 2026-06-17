@@ -1,0 +1,19 @@
+name: Run host tests on PR to main or development
+
+on:
+  pull_request:
+    branches:
+      - main
+      - development
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Build and run tests
+        working-directory: test
+        run: make test
